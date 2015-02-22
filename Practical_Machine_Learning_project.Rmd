@@ -1,0 +1,135 @@
+---
+title: "Quality of Weight Lifting Exercises"
+author: "by Milica Micic"
+output: html_document
+---
+
+We use [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) data in order to predict how well people perform barbell lift exercises. With this data we train two different prediction models - Classification Tree and Random Forest algorithms. We find that Random Forest prediction model performs with significantly higher accuracy, giving the out-of-sample of 0.46%. This model has been applied to the test data set and verified its accuracy by predicting all the quality classes correctly.
+
+## Exploratory Data Analysis
+
+The data was collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants that were asked to perform one set of 10 repetitions of barbell lifts correctly and incorrectly in 5 different ways. The quality of the performance is stored in `classe` variable. Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+The training data is provided from the following link:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv 
+
+while, the test data is provided from the link :  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv 
+
+These datasets can be also downloaded and stored in your working directory with the following code chunk:
+
+```{r, echo=TRUE}
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if (!file.exists("pml-training.csv")) download.file(trainURL, "pml-training.csv", method = "curl")
+if (!file.exists("pml-testing.csv")) download.file(testURL, "pml-testing.csv", method = "curl")
+```
+
+Data contains NA values that we replace with space when reading the data in. 
+
+```{r, echo=TRUE, cache=TRUE}
+trainSet <- read.csv("pml-training.csv", header = TRUE, na.strings = " ")
+testSet <- read.csv("pml-testing.csv", header = TRUE, na.strings = " ")
+```
+
+We also load the `caret` library that is necessary for our analysis and set the number generator seed to ensure the reproducibility of the results.
+
+```{r, echo=TRUE, message=FALSE}
+library(caret)
+set.seed(12345)
+```
+
+Function `nearZeroVar` diagnoses predictors that have one or very few unique values relative to the number of samples. In other words, it detects the variables that have low variability. We use this function to remove such variables from the training set since they do not contribute as covariates.
+
+```{r, echo=TRUE, cache=TRUE}
+trainSet <- trainSet[,-nearZeroVar(trainSet)]
+```
+
+We are left with 59 variables: `classe` as the outcome and 58 predictors. The first 5 variables are also irrelevant and they will NOT be used as predictors in the prediction models, but they are left in the dataset in case of a need for some informative data.
+
+## Cross-validation 
+
+In order to perform cross-validation the training set is sampled into two new datasets: `trainVal` used for building the prediction models and validation set `testVal` used for testing the trained models and estimating out-of-sample error. The most accurate model will be applied to the original test dataset `testSet`.
+
+```{r, echo=TRUE}
+inTrain = createDataPartition(trainSet$classe, p = 0.7, list=FALSE)
+trainVal = trainSet[inTrain,]
+testVal = trainSet[-inTrain,]
+```
+
+### Classification Tree
+
+Decision tree and random forest algorithms are known for their ability of detecting the features that are important for classification. Therefore, we use `rpart` function to build our first model and test its performance on the validation set. We exclude the first 5 variables in this calculation. 
+
+```{r, echo=TRUE, cache=TRUE, message=FALSE}
+library(rpart)
+RP <- rpart(classe ~ ., data = trainVal[,-c(1:5)])
+RPstats <- confusionMatrix(testVal$classe, predict(RP, testVal, type="class"))
+```
+
+Model accuracy represents the proportion of correct classified observations over the total sample in the dataset used to train the model. Thus, the **expected value of the out-of-sample error** will correspond to the expected ratio of misclassified observations or `(1 - model accuracy)`. Confusion matrix table shows that the significant number of predictions is misclassified when the model is applied to the validation set.
+
+```{r, echo=TRUE, message=FALSE}
+RPstats$table
+```
+
+The accuracy of the model is stored in the overall statistics of the confusion matrix and it is:
+
+```{r, echo=TRUE}
+RPstats$overall[1]
+```
+
+This gives us a very large **estimated out-of-sample error** of **`r round(100*(1-RPstats$overall[1]), digits=2)`%** for the classification tree algorithm.
+
+### Random Forest
+
+We build the second model using random forest algorithm embedded in the `randomForest` function. The same as before, we exclude the first 5 variables in the calculation.
+
+```{r, echo=TRUE, message=FALSE}
+library(randomForest)
+RF <- randomForest(classe ~ ., data = trainVal[,-c(1:5)], importance=TRUE)
+RFstats <- confusionMatrix(testVal$classe, predict(RF, testVal))
+```
+
+Looking at the confusion matrix table for this model, we see that almost all predictions are correct.
+
+```{r, echo=TRUE}
+RFstats$table
+```
+
+The accuracy of the random forest algorithm is much larger than in the decision tree model:
+
+```{r, echo=TRUE}
+RFstats$overall[1]
+```
+
+This gives us very low **estimated out-of-sample error of `r round(100*(1-RFstats$overall[1]), digits=2)`%**.
+
+**Therefore, due to the very high accuracy we chose Random Forest model to be our best prediction model to apply to the test cases in `testSet` dataset.**
+
+## Predicting Test Cases
+
+Here we apply the chosen best prediction model (random forest algorithm) to predict 20 different test cases.
+
+```{r, echo=TRUE}
+predict(RF, testSet)
+```
+
+```{r, echo=FALSE, eval=FALSE}
+answers <- predict(RF, testSet)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./problem_answers/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+## Reference
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3RRKxVjko
